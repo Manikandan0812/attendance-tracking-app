@@ -1,0 +1,46 @@
+<h2>All Attendance Data</h2>
+<table border="1">
+<tr>
+    <th>ID</th>
+    <th>Name</th>
+    <th>Entry</th>
+    <th>Exit</th>
+    <th>Zone</th>
+</tr>
+{% for row in raw_data %}
+<tr>
+    <td>{{ row.per_id }}</td>
+    <td>{{ row.person_name }}</td>
+    <td>{{ row.entry_time }}</td>
+    <td>{{ row.exit_time }}</td>
+    <td>{{ row.zone }}</td>
+</tr>
+{% endfor %}
+</table>
+
+<hr>
+
+<h2>Today's Attendance</h2>
+{% for row in today_data %}
+<p>{{ row.person_name }} - {{ row.entry_time }}</p>
+{% endfor %}
+
+<hr>
+
+<h2 style="color:red;">Late Alerts (After 9:30 AM)</h2>
+{% for row in late_data %}
+<p>🚨 {{ row.person_name }} came late at {{ row.entry_time }}</p>
+{% empty %}
+<p>No late entries</p>
+{% endfor %}
+
+<hr>
+
+<h2>Aggregate Report</h2>
+{% for row in aggregate_data %}
+<p>
+{{ row.person_name }} | {{ row.date }} |
+First: {{ row.first_entry }} |
+Last: {{ row.last_exit }}
+</p>
+{% endfor %}

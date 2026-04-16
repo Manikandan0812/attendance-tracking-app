@@ -1,0 +1,29 @@
+# 📦 Automation Utils Library
+
+A lightweight and powerful Python utility package for automating:
+- ✅ Excel report generation
+- 🎥 Test case video capture & consolidation
+- 🖼️ Screenshot-to-HTML consolidation
+- 📊 Visual test reporting
+
+Easily plug this into your automation workflow or CI pipelines to simplify reporting and documentation.
+
+---
+
+## 🚀 Features
+
+- **Excel Report Generator**  
+  Create structured Excel files from test case metadata using a list of dictionaries.
+
+- **Video Capture & Consolidation**  
+  Record test case steps and consolidate multiple videos into one clean, branded output using optional templates.
+
+- **Screenshot Consolidation to HTML**  
+  Generate an HTML summary from test step screenshots and metadata.
+
+---
+
+## 📦 Installation
+
+```bash
+pip install your-package-name
