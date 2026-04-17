@@ -1,14 +1,15 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.db import connection
+from django.conf import settings
 from datetime import datetime
 import json
 import os
 
-from attendance_app.filters import build_common_filters
 
-
-# ✅ SAFE TIME PARSER (handles microseconds)
+# ==============================
+# SAFE TIME PARSER
+# ==============================
 def parse_time_safe(time_str):
     try:
         if not time_str:
@@ -21,102 +22,105 @@ def parse_time_safe(time_str):
 
         return datetime.fromisoformat(time_str)
 
-    except Exception as e:
-        print("Time parse error:", time_str, e)
+    except:
         return None
 
 
-# ✅ IMAGE URL BUILDER
-def build_image_url(request, path, img_type):
+# ==============================
+# CLEAN IMAGE PATH (IMPORTANT FIX)
+# ==============================
+def clean_image_path(path):
+    """
+    Converts:
+    D:\Vision...\entry\file.jpg
+    OR blob messy path
+    INTO:
+    entry/file.jpg
+    """
+
     if not path:
         return None
 
-    filename = os.path.basename(path)
+    path = path.replace("\\", "/")
+    parts = path.split("/")
 
-    if img_type == "IN":
-        return request.build_absolute_uri(f"/media/entry/{filename}")
+    if "entry" in parts:
+        idx = parts.index("entry")
+    elif "exit" in parts:
+        idx = parts.index("exit")
     else:
-        return request.build_absolute_uri(f"/media/exit/{filename}")
+        return os.path.basename(path)
 
-# def build_image_url(request, path, img_type):
-#     if not path:
-#         return None
-
-#     filename = os.path.basename(path)
-
-#     if img_type == "IN":
-#         url = request.build_absolute_uri(f"/media/entry/{filename}")
-#     else:
-#         url = request.build_absolute_uri(f"/media/exit/{filename}")
-
-#     # Force https (useful behind ngrok / proxy)
-#     return url.replace("http://", "https://")
+    return "/".join(parts[idx:])
 
 
-# ✅ FIXED AWAY CALCULATION (handles multiple pairs correctly)
+# ==============================
+# IMAGE URL BUILDER (AZURE READY)
+# ==============================
+def build_image_url(request, path, img_type):
+    clean_path = clean_image_path(path)
+
+    if not clean_path:
+        return None
+
+    # FINAL OUTPUT (Azure Blob URL)
+    return f"{settings.MEDIA_URL}{clean_path}"
+
+
+# ==============================
+# CALCULATE AWAY TIME
+# ==============================
 def calculate_away(all_check_ins, all_check_outs, request):
     try:
         events = []
 
-        # IN events
         for x in all_check_ins:
             t = parse_time_safe(x.get("time"))
             if t:
-                events.append({
-                    "time": t,
-                    "type": "IN",
-                    "image": x.get("image")
-                })
+                events.append({"time": t, "type": "IN", "image": x.get("image")})
 
-        # OUT events
         for x in all_check_outs:
             t = parse_time_safe(x.get("time"))
             if t:
-                events.append({
-                    "time": t,
-                    "type": "OUT",
-                    "image": x.get("image")
-                })
+                events.append({"time": t, "type": "OUT", "image": x.get("image")})
 
-        # Sort all events
         events.sort(key=lambda x: x["time"])
 
         away_list = []
         total_away = 0
-        last_out_event = None
+        last_out = None
 
-        for event in events:
+        for e in events:
+            if e["type"] == "OUT":
+                last_out = e
 
-            if event["type"] == "OUT":
-                last_out_event = event
+            elif e["type"] == "IN" and last_out:
+                diff = (e["time"] - last_out["time"]).total_seconds()
 
-            elif event["type"] == "IN" and last_out_event:
-                diff = (event["time"] - last_out_event["time"]).total_seconds()
-
-                if diff > 30:  # ignore noise
+                if diff > 30:
                     away_list.append({
-                        "out_time": last_out_event["time"].strftime("%Y-%m-%d %H:%M:%S"),
-                        "out_image": build_image_url(request, last_out_event["image"], "OUT"),
+                        "out_time": last_out["time"].strftime("%Y-%m-%d %H:%M:%S"),
+                        "out_image": build_image_url(request, last_out["image"], "OUT"),
 
-                        "in_time": event["time"].strftime("%Y-%m-%d %H:%M:%S"),
-                        "in_image": build_image_url(request, event["image"], "IN"),
+                        "in_time": e["time"].strftime("%Y-%m-%d %H:%M:%S"),
+                        "in_image": build_image_url(request, e["image"], "IN"),
 
                         "away_seconds": int(diff)
                     })
 
                     total_away += diff
 
-                # reset after pairing
-                last_out_event = None
+                last_out = None
 
         return int(total_away), away_list
 
-    except Exception as e:
-        print("Away calc error:", e)
+    except:
         return 0, []
 
 
-# ✅ OPTIONAL: FULL TIMELINE (for debugging / UI)
+# ==============================
+# TIMELINE BUILDER
+# ==============================
 def build_timeline(all_check_ins, all_check_outs, request):
     events = []
 
@@ -146,14 +150,15 @@ def build_timeline(all_check_ins, all_check_outs, request):
     return events
 
 
-# ✅ MAIN API
+# ==============================
+# MAIN API
+# ==============================
 @api_view(['GET'])
 def away_logs(request):
     try:
         date = request.GET.get('date')
         range_type = request.GET.get('range')
 
-        # ✅ IMPORTANT FIX (NO unpack error)
         where_sql, params, _, _ = build_common_filters(date, range_type)
 
         query = f"""
@@ -163,26 +168,14 @@ def away_logs(request):
             ag.person_name,
             ag.attendance_date,
             ag.first_check_in,
-
-            CASE 
-                WHEN ag.last_check_out IS NULL THEN NULL
-                WHEN ag.first_check_in > ag.last_check_out THEN NULL
-                ELSE ag.last_check_out
-            END AS last_check_out,
-
-            CASE 
-                WHEN ag.last_check_out IS NULL THEN NULL
-                WHEN ag.first_check_in > ag.last_check_out THEN NULL
-                ELSE ag.last_check_out_image
-            END AS last_check_out_image,
-
+            ag.last_check_out,
+            ag.last_check_out_image,
             ag.total_check_ins,
             ag.total_check_outs,
             ag.total_in_out_pairs,
             ag.assigned_shift_id,
             ag.assigned_shift_name,
             ag.total_calculated_work_hours,
-
             ag.first_check_in_image,
             ag.all_check_in_images,
             ag.all_check_out_images
@@ -204,22 +197,14 @@ def away_logs(request):
         for row in rows:
             data = dict(zip(columns, row))
 
-            # ✅ Parse JSON safely
             try:
                 check_ins = json.loads(data.get("all_check_in_images") or "[]")
                 check_outs = json.loads(data.get("all_check_out_images") or "[]")
             except:
                 check_ins, check_outs = [], []
 
-            # ✅ AWAY CALCULATION
             away_time, away_list = calculate_away(check_ins, check_outs, request)
-
-            # ✅ TIMELINE (optional)
             timeline = build_timeline(check_ins, check_outs, request)
-
-            # ✅ IMAGE FIX
-            first_img = build_image_url(request, data.get("first_check_in_image"), "IN")
-            last_img = build_image_url(request, data.get("last_check_out_image"), "OUT")
 
             results.append({
                 "id": data["id"],
@@ -229,15 +214,12 @@ def away_logs(request):
 
                 "away_time": away_time,
                 "first_checkin-last_checkout_list": away_list,
-
-                # 🔥 FULL DEBUG VISIBILITY
                 "timeline": timeline,
 
                 "first_check_in": data["first_check_in"],
-                "first_check_in_image": first_img,
-
+                "first_check_in_image": build_image_url(request, data.get("first_check_in_image"), "IN"),
                 "last_check_out": data["last_check_out"],
-                "last_check_out_image": last_img,
+                "last_check_out_image": build_image_url(request, data.get("last_check_out_image"), "OUT"),
 
                 "total_check_ins": data["total_check_ins"],
                 "total_check_outs": data["total_check_outs"],
@@ -253,7 +235,6 @@ def away_logs(request):
         })
 
     except Exception as e:
-        print("❌ ERROR:", str(e))
         return Response({
             "status": "error",
             "message": str(e)
