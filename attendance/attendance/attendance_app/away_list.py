@@ -28,28 +28,31 @@ def parse_time_safe(time_str):
 
 
 # ==============================
-# CLEAN WINDOWS PATH (FIX WARNING)
+# FIX WINDOWS ESCAPE ISSUE (ROOT FIX)
 # ==============================
 def normalize_path(path):
     """
     Fixes:
-    - D:\Vision Analytics\...
-    - invalid escape sequences
+    D:\Vision Analytics\...
+    \V, \F invalid escape warnings
     """
     if not path:
         return None
 
-    # convert backslashes → safe slashes
+    # convert to raw-safe string first
+    path = str(path)
+
+    # FIX BACKSLASH ISSUE
     path = path.replace("\\", "/")
 
-    # remove any duplicate slashes
+    # remove duplicate slashes
     path = re.sub(r"/+", "/", path)
 
     return path
 
 
 # ==============================
-# GET CLEAN entry/exit PATH ONLY
+# EXTRACT entry/exit CLEAN PATH
 # ==============================
 def clean_image_path(path):
     path = normalize_path(path)
@@ -82,7 +85,39 @@ def build_image_url(request, path, img_type):
 
 
 # ==============================
-# CALCULATE AWAY TIME
+# SAFE TIMELINE PARSER
+# ==============================
+def build_timeline(all_check_ins, all_check_outs, request):
+    events = []
+
+    for x in all_check_ins:
+        t = parse_time_safe(x.get("time"))
+        if t:
+            events.append({
+                "time": t,
+                "type": "IN",
+                "image": build_image_url(request, x.get("image"), "IN")
+            })
+
+    for x in all_check_outs:
+        t = parse_time_safe(x.get("time"))
+        if t:
+            events.append({
+                "time": t,
+                "type": "OUT",
+                "image": build_image_url(request, x.get("image"), "OUT")
+            })
+
+    events.sort(key=lambda x: x["time"])
+
+    for e in events:
+        e["time"] = e["time"].strftime("%Y-%m-%d %H:%M:%S")
+
+    return events
+
+
+# ==============================
+# AWAY CALCULATION
 # ==============================
 def calculate_away(all_check_ins, all_check_outs, request):
     try:
@@ -133,38 +168,6 @@ def calculate_away(all_check_ins, all_check_outs, request):
 
 
 # ==============================
-# TIMELINE BUILDER
-# ==============================
-def build_timeline(all_check_ins, all_check_outs, request):
-    events = []
-
-    for x in all_check_ins:
-        t = parse_time_safe(x.get("time"))
-        if t:
-            events.append({
-                "time": t,
-                "type": "IN",
-                "image": build_image_url(request, x.get("image"), "IN")
-            })
-
-    for x in all_check_outs:
-        t = parse_time_safe(x.get("time"))
-        if t:
-            events.append({
-                "time": t,
-                "type": "OUT",
-                "image": build_image_url(request, x.get("image"), "OUT")
-            })
-
-    events.sort(key=lambda x: x["time"])
-
-    for e in events:
-        e["time"] = e["time"].strftime("%Y-%m-%d %H:%M:%S")
-
-    return events
-
-
-# ==============================
 # MAIN API
 # ==============================
 @api_view(['GET'])
@@ -211,6 +214,7 @@ def away_logs(request):
         for row in rows:
             data = dict(zip(columns, row))
 
+            # SAFE JSON PARSE
             try:
                 check_ins = json.loads(data.get("all_check_in_images") or "[]")
                 check_outs = json.loads(data.get("all_check_out_images") or "[]")
