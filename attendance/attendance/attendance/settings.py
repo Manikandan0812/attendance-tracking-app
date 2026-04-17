@@ -120,8 +120,8 @@ EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 
-EMAIL_HOST_USER = 'priya.tharshini@prowesstics.com'
-EMAIL_HOST_PASSWORD = 'qwtibsblhgvwbkdh'
+EMAIL_HOST_USER = 'manikandan.m@prowesstics.com'
+EMAIL_HOST_PASSWORD = 'xble reyp dotl cnfg'
 
 
 # -----------------------------
