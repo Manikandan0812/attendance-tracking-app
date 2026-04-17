@@ -688,9 +688,15 @@ from django.db import connection
 from email.mime.image import MIMEImage
 
 
-# ==================================================
-# FORMAT DELAY MINUTES → HUMAN READABLE
-# ==================================================
+# ==========================
+# CONFIG (AZURE BASE URL)
+# ==========================
+AZURE_BASE_URL = "https://provisions.blob.core.windows.net/media"
+
+
+# ==========================
+# FORMAT DELAY
+# ==========================
 def format_delay(minutes):
     if minutes is None:
         return ""
@@ -699,56 +705,61 @@ def format_delay(minutes):
     mins = minutes % 60
 
     if hours > 0:
-        hour_text = "hour" if hours == 1 else "hours"
-        minute_text = "minute" if mins == 1 else "minutes"
-        return f"{hours} {hour_text} {mins} {minute_text}"
-    else:
-        minute_text = "minute" if mins == 1 else "minutes"
-        return f"{mins} {minute_text}"
+        return f"{hours} hour{'s' if hours != 1 else ''} {mins} minute{'s' if mins != 1 else ''}"
+    return f"{mins} minute{'s' if mins != 1 else ''}"
 
 
-# ==================================================
-# ONLY PATH FIX (IMPORTANT)
-# ==================================================
-def build_url(request, image_path):
+# ==========================
+# CLEAN PATH (ENTRY / EXIT ONLY)
+# ==========================
+def clean_image_path(image_path):
     if not image_path:
         return None
 
-    # FIX WINDOWS PATH ISSUE
     path = str(image_path).replace("\\", "/")
 
-    # remove drive letter (D:)
+    # remove drive like D:
     if ":" in path:
         path = path.split(":", 1)[-1]
 
-    # remove leading slash
     path = path.lstrip("/")
 
-    # keep only entry/exit part
     if "entry" in path:
         path = path[path.index("entry"):]
     elif "exit" in path:
         path = path[path.index("exit"):]
 
-    return request.build_absolute_uri(f"/media/{path}")
+    return path
 
 
-# ==================================================
-# MAIN FUNCTION (UNCHANGED LOGIC)
-# ==================================================
+# ==========================
+# FINAL AZURE URL BUILDER
+# ==========================
+def build_url(image_path):
+    clean_path = clean_image_path(image_path)
+
+    if not clean_path:
+        return None
+
+    return f"{AZURE_BASE_URL}/{clean_path}"
+
+
+# ==========================
+# MAIN FUNCTION
+# ==========================
 def send_late_alert_mail(request):
 
     today = date.today()
     sent_count = 0
 
     try:
-        # FETCH DATA
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT per_id, person_name,
                        delay_minutes,
                        first_check_in_time,
-                       first_check_in_image
+                       first_check_in_image,
+                       last_check_out_image
                 FROM attendance_alerts
                 WHERE alert_status = 'Late'
                   AND alert_date = %s
@@ -758,92 +769,53 @@ def send_late_alert_mail(request):
 
             rows = cursor.fetchall()
 
-        # ==================================================
+        # ==========================
         # SEND EMAILS
-        # ==================================================
+        # ==========================
         for row in rows:
 
             per_id = row[0]
             person_name = row[1]
             delay_minutes = row[2]
             checkin_time = row[3]
-            image_path = row[4]
+            first_image = row[4]
+            last_image = row[5]
 
             formatted_time = checkin_time.strftime("%I:%M %p") if checkin_time else ""
             formatted_delay = format_delay(delay_minutes)
 
             image_cid = "checkin_image"
 
-            # ================= EMAIL HTML =================
+            # ==========================
+            # HTML EMAIL (UPDATED UI)
+            # ==========================
             html_content = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Late Notification</title>
 </head>
 
-<body style="margin:0; padding:40px 20px; background-color:#f6f8fa; font-family:Arial, sans-serif;">
+<body style="margin:0; padding:40px; background:#f6f8fa; font-family:Arial;">
 
-<div style="max-width:600px; margin:auto; background:#ffffff; border-radius:24px; box-shadow:0 20px 40px -10px rgba(0,0,0,0.05); position:relative;">
+<div style="max-width:600px; margin:auto; background:#fff; border-radius:20px;">
 
-    <!-- Left indicator -->
-    <div style="position:absolute; left:0; top:40px; bottom:40px; width:5px; background:#f6ad55;"></div>
+    <div style="padding:30px;">
+        <h2>Employee Late Alert</h2>
 
-    <!-- Header -->
-    <div style="padding:40px;">
-        <h1 style="font-size:26px; margin:0;">Employee Arrival: Beyond Threshold</h1>
-    </div>
+        <p><b>Name:</b> {person_name}</p>
+        <p><b>Delay:</b> {formatted_delay}</p>
+        <p><b>Check-in Time:</b> {formatted_time}</p>
 
-    <!-- Summary -->
-    <div style="margin:0 40px 30px; background:#f8fafc; padding:20px; border-radius:12px;">
-        
-        <table width="100%" cellpadding="5" cellspacing="0">
-            <tr>
-                <td>
-                    <div style="font-size:11px; color:#718096;">MEMBER</div>
-                    <div style="font-weight:600;">{person_name}</div>
-                </td>
-                <td>
-                    <div style="font-size:11px; color:#718096;">DELAY</div>
-                    <div style="font-weight:600; color:#dd6b20;">+ {formatted_delay} Late</div>
-                </td>
-            </tr>
-            <tr>
-                <td>
-                    <div style="font-size:11px; color:#718096;">SHIFT START</div>
-                    <div style="font-weight:600;">10:30 AM</div>
-                </td>
-                <td>
-                    <div style="font-size:11px; color:#718096;">VERIFIED AT</div>
-                    <div style="font-weight:600;">{formatted_time}</div>
-                </td>
-            </tr>
-        </table>
+        <hr>
 
-    </div>
+        <h4>Check-in Image</h4>
+        <img src="cid:{image_cid}" style="width:100%; border-radius:10px;">
 
-    <!-- IMAGE FIXED SECTION -->
-    <div style="margin:0 40px 30px;">
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" 
-               style="border:1px dashed #ccc; border-radius:12px;">
-            <tr>
-                <td align="center" style="padding:10px; background:#f9f9f9;">
-                    <img src="cid:{image_cid}" 
-                         alt="Detected Image"
-                         style="width:100%; max-width:100%; height:auto; display:block; border-radius:10px;">
-                </td>
-            </tr>
-        </table>
-    </div>
-
-    <!-- Footer -->
-    <div style="padding:30px 40px; text-align:center;">
-        <a href="#" 
-           style="background:#2d3748; color:#fff; padding:12px; display:block; border-radius:10px; text-decoration:none;">
-           Manage in Dashboard
-        </a>
+        <h4>Last Check-out Image (Azure)</h4>
+        <img src="{build_url(last_image)}"
+             style="width:100%; border-radius:10px;">
     </div>
 
 </div>
@@ -854,26 +826,20 @@ def send_late_alert_mail(request):
 
             email = EmailMultiAlternatives(
                 subject=f"Late Alert - {person_name}",
-                body="Late alert notification",
+                body="Late alert",
                 from_email=settings.EMAIL_HOST_USER,
                 to=["mahesh.raja@prowesstics.com"]
             )
 
             email.attach_alternative(html_content, "text/html")
 
-            # ==================================================
-            # IMAGE ATTACH (NO CHANGE IN FLOW)
-            # ==================================================
-            if image_path and os.path.exists(image_path):
-
-                with open(image_path, "rb") as img:
+            # ==========================
+            # ATTACH LOCAL CHECKIN IMAGE
+            # ==========================
+            if first_image and os.path.exists(first_image):
+                with open(first_image, "rb") as img:
                     mime_image = MIMEImage(img.read())
                     mime_image.add_header("Content-ID", "<checkin_image>")
-                    mime_image.add_header(
-                        "Content-Disposition",
-                        "inline",
-                        filename=os.path.basename(image_path)
-                    )
                     email.attach(mime_image)
 
             email.send()
@@ -889,9 +855,9 @@ def send_late_alert_mail(request):
 
             sent_count += 1
 
-        # ==================================================
-        # RESPONSE DATA (FIXED IMAGE ONLY)
-        # ==================================================
+        # ==========================
+        # RESPONSE (FIXED AZURE URL OUTPUT)
+        # ==========================
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT per_id,
@@ -899,6 +865,7 @@ def send_late_alert_mail(request):
                        alert_date,
                        first_check_in_time,
                        first_check_in_image,
+                       last_check_out_image,
                        delay_minutes,
                        mail_sent_status
                 FROM attendance_alerts
@@ -919,11 +886,12 @@ def send_late_alert_mail(request):
                 "alert_date": str(row[2]),
                 "first_checkin_time": row[3].strftime("%I:%M %p") if row[3] else None,
 
-                # ✅ ONLY THIS FIXED
-                "first_checkin_image": build_url(request, row[4]),
+                # ✅ AZURE FIX
+                "first_checkin_image": build_url(row[4]),
+                "last_check_out_image": build_url(row[5]),
 
-                "delay_display": format_delay(row[5]),
-                "mail_status": row[6]
+                "delay_display": format_delay(row[6]),
+                "mail_status": row[7]
             })
 
         return JsonResponse({
