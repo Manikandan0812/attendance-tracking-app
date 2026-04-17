@@ -27,6 +27,7 @@ INSTALLED_APPS = [
 
     'rest_framework',
     'attendance_app',
+    'storages',
 ]
 
 
@@ -96,8 +97,18 @@ CSRF_TRUSTED_ORIGINS = [
 # -----------------------------
 # MEDIA
 # -----------------------------
-MEDIA_URL = '/media/'
-MEDIA_ROOT = r'D:\Vision Analytics\Face_recog\evidence_images'
+# MEDIA_URL = '/media/'
+# MEDIA_ROOT = r'D:\Vision Analytics\Face_recog\evidence_images'
+
+
+
+DEFAULT_FILE_STORAGE = 'storages.backends.azure_storage.AzureStorage'
+
+AZURE_ACCOUNT_NAME = 'provisions'
+AZURE_ACCOUNT_KEY = '5iJJ/k1ojQg1D3irjN65h5dfJIbjid5kLcdjbf4Gtd5e2XbZZenJTb1MxXCkOxTe7xS6MCUqk5O3+AStNF8G9g=='
+AZURE_CONTAINER = 'media'
+
+MEDIA_URL = f"https://{AZURE_ACCOUNT_NAME}.blob.core.windows.net/{AZURE_CONTAINER}/"
 
 
 # -----------------------------
