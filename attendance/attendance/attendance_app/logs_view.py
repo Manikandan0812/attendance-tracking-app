@@ -594,17 +594,15 @@ def get_clean_first_last(check_ins, check_outs):
     return first_in, last_out
 
 
-# ✅ IMAGE URL BUILDER
+from django.conf import settings
+
 def build_url(request, path, type_):
     if not path:
         return None
 
     filename = os.path.basename(path)
 
-    return request.build_absolute_uri(
-        f"/media/{'entry' if type_ == 'IN' else 'exit'}/{filename}"
-    )
-
+    return f"{settings.MEDIA_URL}{'entry' if type_=='IN' else 'exit'}/{filename}"
 
 # ✅ MAIN LOGS API (NO FILTERS)
 @api_view(['GET'])
