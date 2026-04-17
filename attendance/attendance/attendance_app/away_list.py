@@ -5,6 +5,7 @@ from django.conf import settings
 from datetime import datetime
 import json
 import os
+import re
 
 
 # ==============================
@@ -27,21 +28,35 @@ def parse_time_safe(time_str):
 
 
 # ==============================
-# CLEAN IMAGE PATH (IMPORTANT FIX)
+# CLEAN WINDOWS PATH (FIX WARNING)
+# ==============================
+def normalize_path(path):
+    """
+    Fixes:
+    - D:\Vision Analytics\...
+    - invalid escape sequences
+    """
+    if not path:
+        return None
+
+    # convert backslashes → safe slashes
+    path = path.replace("\\", "/")
+
+    # remove any duplicate slashes
+    path = re.sub(r"/+", "/", path)
+
+    return path
+
+
+# ==============================
+# GET CLEAN entry/exit PATH ONLY
 # ==============================
 def clean_image_path(path):
-    """
-    Converts:
-    D:\Vision...\entry\file.jpg
-    OR blob messy path
-    INTO:
-    entry/file.jpg
-    """
+    path = normalize_path(path)
 
     if not path:
         return None
 
-    path = path.replace("\\", "/")
     parts = path.split("/")
 
     if "entry" in parts:
@@ -55,7 +70,7 @@ def clean_image_path(path):
 
 
 # ==============================
-# IMAGE URL BUILDER (AZURE READY)
+# BUILD FINAL IMAGE URL (AZURE)
 # ==============================
 def build_image_url(request, path, img_type):
     clean_path = clean_image_path(path)
@@ -63,7 +78,6 @@ def build_image_url(request, path, img_type):
     if not clean_path:
         return None
 
-    # FINAL OUTPUT (Azure Blob URL)
     return f"{settings.MEDIA_URL}{clean_path}"
 
 
@@ -156,10 +170,10 @@ def build_timeline(all_check_ins, all_check_outs, request):
 @api_view(['GET'])
 def away_logs(request):
     try:
-        date = request.GET.get('date')
-        range_type = request.GET.get('range')
-
-        where_sql, params, _, _ = build_common_filters(date, range_type)
+        where_sql, params, _, _ = build_common_filters(
+            request.GET.get('date'),
+            request.GET.get('range')
+        )
 
         query = f"""
         SELECT 
