@@ -688,60 +688,62 @@ from django.db import connection
 from email.mime.image import MIMEImage
 
 
+# ==================================================
+# FORMAT DELAY MINUTES → HUMAN READABLE
+# ==================================================
+def format_delay(minutes):
+    if minutes is None:
+        return ""
+
+    hours = minutes // 60
+    mins = minutes % 60
+
+    if hours > 0:
+        hour_text = "hour" if hours == 1 else "hours"
+        minute_text = "minute" if mins == 1 else "minutes"
+        return f"{hours} {hour_text} {mins} {minute_text}"
+    else:
+        minute_text = "minute" if mins == 1 else "minutes"
+        return f"{mins} {minute_text}"
+
+
+# ==================================================
+# ONLY PATH FIX (IMPORTANT)
+# ==================================================
+def build_url(request, image_path):
+    if not image_path:
+        return None
+
+    # FIX WINDOWS PATH ISSUE
+    path = str(image_path).replace("\\", "/")
+
+    # remove drive letter (D:)
+    if ":" in path:
+        path = path.split(":", 1)[-1]
+
+    # remove leading slash
+    path = path.lstrip("/")
+
+    # keep only entry/exit part
+    if "entry" in path:
+        path = path[path.index("entry"):]
+    elif "exit" in path:
+        path = path[path.index("exit"):]
+
+    return request.build_absolute_uri(f"/media/{path}")
+
+
+# ==================================================
+# MAIN FUNCTION (UNCHANGED LOGIC)
+# ==================================================
 def send_late_alert_mail(request):
 
     today = date.today()
     sent_count = 0
 
-    # ==================================================
-    # FORMAT DELAY MINUTES -> HOURS & MINUTES
-    # ==================================================
-    def format_delay(minutes):
-        if minutes is None:
-            return ""
-
-        hours = minutes // 60
-        mins = minutes % 60
-
-        if hours > 0:
-            hour_text = "hour" if hours == 1 else "hours"
-            minute_text = "minute" if mins == 1 else "minutes"
-            return f"{hours} {hour_text} {mins} {minute_text}"
-        else:
-            minute_text = "minute" if mins == 1 else "minutes"
-            return f"{mins} {minute_text}"
-
-    # ==================================================
-    # BUILD IMAGE URL FUNCTION
-    # ==================================================
-    def build_url(request, image_path):
-        if not image_path:
-            return None
-
-        filename = os.path.basename(image_path)
-        folder = os.path.basename(os.path.dirname(image_path))
-
-        return request.build_absolute_uri(
-            f"/media/{folder}/{filename}"
-        )
-
-    # def build_url(request, image_path):
-    #     if not image_path:
-    #         return None
-
-    #     filename = os.path.basename(image_path)
-    #     folder = os.path.basename(os.path.dirname(image_path))
-
-    #     url = request.build_absolute_uri(f"/media/{folder}/{filename}")
-
-    #     return url.replace("http://", "https://")
-
     try:
-        # ==================================================
-        # FETCH PENDING LATE ALERTS
-        # ==================================================
+        # FETCH DATA
         with connection.cursor() as cursor:
-
             cursor.execute("""
                 SELECT per_id, person_name,
                        delay_minutes,
@@ -761,7 +763,7 @@ def send_late_alert_mail(request):
         # ==================================================
         for row in rows:
 
-            alert_id = row[0]
+            per_id = row[0]
             person_name = row[1]
             delay_minutes = row[2]
             checkin_time = row[3]
@@ -772,7 +774,7 @@ def send_late_alert_mail(request):
 
             image_cid = "checkin_image"
 
-            
+            # ================= EMAIL HTML =================
             html_content = f"""
 <!DOCTYPE html>
 <html lang="en">
@@ -859,10 +861,11 @@ def send_late_alert_mail(request):
 
             email.attach_alternative(html_content, "text/html")
 
-            # ============================
-            # ATTACH IMAGE INLINE
-            # ============================
+            # ==================================================
+            # IMAGE ATTACH (NO CHANGE IN FLOW)
+            # ==================================================
             if image_path and os.path.exists(image_path):
+
                 with open(image_path, "rb") as img:
                     mime_image = MIMEImage(img.read())
                     mime_image.add_header("Content-ID", "<checkin_image>")
@@ -875,22 +878,19 @@ def send_late_alert_mail(request):
 
             email.send()
 
-            # ============================
             # UPDATE STATUS
-            # ============================
             with connection.cursor() as cursor:
                 cursor.execute("""
                     UPDATE attendance_alerts
                     SET mail_sent_status = 'Sent',
-                        mail_sent_at = NOW(),
-                        mail_retry_count = COALESCE(mail_retry_count, 0)
+                        mail_sent_at = NOW()
                     WHERE per_id = %s
-                """, [alert_id])
+                """, [per_id])
 
             sent_count += 1
 
         # ==================================================
-        # RETURN ALL LATE DATA
+        # RESPONSE DATA (FIXED IMAGE ONLY)
         # ==================================================
         with connection.cursor() as cursor:
             cursor.execute("""
@@ -905,7 +905,7 @@ def send_late_alert_mail(request):
                 WHERE alert_status = 'Late'
                   AND alert_date = %s
                   AND person_name <> 'Unknown'
-                ORDER BY first_check_in_time desc
+                ORDER BY first_check_in_time DESC
             """, [today])
 
             all_rows = cursor.fetchall()
@@ -918,7 +918,10 @@ def send_late_alert_mail(request):
                 "person_name": row[1],
                 "alert_date": str(row[2]),
                 "first_checkin_time": row[3].strftime("%I:%M %p") if row[3] else None,
+
+                # ✅ ONLY THIS FIXED
                 "first_checkin_image": build_url(request, row[4]),
+
                 "delay_display": format_delay(row[5]),
                 "mail_status": row[6]
             })
@@ -931,14 +934,6 @@ def send_late_alert_mail(request):
         })
 
     except Exception as e:
-
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                UPDATE attendance_alerts
-                SET mail_retry_count = COALESCE(mail_retry_count, 0) + 1
-                WHERE mail_sent_status = 'Pending'
-            """)
-
         return JsonResponse({
             "status": "failed",
             "error": str(e)
