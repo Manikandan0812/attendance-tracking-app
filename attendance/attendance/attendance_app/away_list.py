@@ -7,6 +7,9 @@ import json
 import os
 import re
 
+# ✅ IMPORT FIX
+from attendance_app.filters import build_common_filters
+
 
 # ==============================
 # SAFE TIME PARSER
@@ -28,31 +31,21 @@ def parse_time_safe(time_str):
 
 
 # ==============================
-# FIX WINDOWS ESCAPE ISSUE (ROOT FIX)
+# FIX WINDOWS PATH ISSUE
 # ==============================
 def normalize_path(path):
-    """
-    Fixes:
-    D:\Vision Analytics\...
-    \V, \F invalid escape warnings
-    """
     if not path:
         return None
 
-    # convert to raw-safe string first
     path = str(path)
-
-    # FIX BACKSLASH ISSUE
     path = path.replace("\\", "/")
-
-    # remove duplicate slashes
     path = re.sub(r"/+", "/", path)
 
     return path
 
 
 # ==============================
-# EXTRACT entry/exit CLEAN PATH
+# CLEAN IMAGE PATH
 # ==============================
 def clean_image_path(path):
     path = normalize_path(path)
@@ -73,7 +66,7 @@ def clean_image_path(path):
 
 
 # ==============================
-# BUILD FINAL IMAGE URL (AZURE)
+# BUILD IMAGE URL (AZURE READY)
 # ==============================
 def build_image_url(request, path, img_type):
     clean_path = clean_image_path(path)
@@ -85,7 +78,7 @@ def build_image_url(request, path, img_type):
 
 
 # ==============================
-# SAFE TIMELINE PARSER
+# TIMELINE
 # ==============================
 def build_timeline(all_check_ins, all_check_outs, request):
     events = []
@@ -114,57 +107,6 @@ def build_timeline(all_check_ins, all_check_outs, request):
         e["time"] = e["time"].strftime("%Y-%m-%d %H:%M:%S")
 
     return events
-
-
-# ==============================
-# AWAY CALCULATION
-# ==============================
-def calculate_away(all_check_ins, all_check_outs, request):
-    try:
-        events = []
-
-        for x in all_check_ins:
-            t = parse_time_safe(x.get("time"))
-            if t:
-                events.append({"time": t, "type": "IN", "image": x.get("image")})
-
-        for x in all_check_outs:
-            t = parse_time_safe(x.get("time"))
-            if t:
-                events.append({"time": t, "type": "OUT", "image": x.get("image")})
-
-        events.sort(key=lambda x: x["time"])
-
-        away_list = []
-        total_away = 0
-        last_out = None
-
-        for e in events:
-            if e["type"] == "OUT":
-                last_out = e
-
-            elif e["type"] == "IN" and last_out:
-                diff = (e["time"] - last_out["time"]).total_seconds()
-
-                if diff > 30:
-                    away_list.append({
-                        "out_time": last_out["time"].strftime("%Y-%m-%d %H:%M:%S"),
-                        "out_image": build_image_url(request, last_out["image"], "OUT"),
-
-                        "in_time": e["time"].strftime("%Y-%m-%d %H:%M:%S"),
-                        "in_image": build_image_url(request, e["image"], "IN"),
-
-                        "away_seconds": int(diff)
-                    })
-
-                    total_away += diff
-
-                last_out = None
-
-        return int(total_away), away_list
-
-    except:
-        return 0, []
 
 
 # ==============================
@@ -214,14 +156,12 @@ def away_logs(request):
         for row in rows:
             data = dict(zip(columns, row))
 
-            # SAFE JSON PARSE
             try:
                 check_ins = json.loads(data.get("all_check_in_images") or "[]")
                 check_outs = json.loads(data.get("all_check_out_images") or "[]")
             except:
                 check_ins, check_outs = [], []
 
-            away_time, away_list = calculate_away(check_ins, check_outs, request)
             timeline = build_timeline(check_ins, check_outs, request)
 
             results.append({
@@ -229,9 +169,6 @@ def away_logs(request):
                 "per_id": data["per_id"],
                 "person_name": data["person_name"],
                 "attendance_date": data["attendance_date"],
-
-                "away_time": away_time,
-                "first_checkin-last_checkout_list": away_list,
                 "timeline": timeline,
 
                 "first_check_in": data["first_check_in"],
@@ -242,18 +179,11 @@ def away_logs(request):
                 "total_check_ins": data["total_check_ins"],
                 "total_check_outs": data["total_check_outs"],
                 "total_in_out_pairs": data["total_in_out_pairs"],
-                "assigned_shift_id": data["assigned_shift_id"],
                 "assigned_shift_name": data["assigned_shift_name"],
                 "total_calculated_work_hours": data["total_calculated_work_hours"],
             })
 
-        return Response({
-            "status": "success",
-            "data": results
-        })
+        return Response({"status": "success", "data": results})
 
     except Exception as e:
-        return Response({
-            "status": "error",
-            "message": str(e)
-        }, status=500)
+        return Response({"status": "error", "message": str(e)}, status=500)
