@@ -596,12 +596,20 @@ def get_clean_first_last(check_ins, check_outs):
 
 from django.conf import settings
 
+from django.conf import settings
+import os
+
 def build_url(request, path, type_):
     if not path:
         return None
 
+    # 🔥 normalize path (important for Windows)
+    path = path.replace("\\", "/")
+
+    # get only filename
     filename = os.path.basename(path)
 
+    # build clean relative path
     return f"{settings.MEDIA_URL}{'entry' if type_=='IN' else 'exit'}/{filename}"
 
 # ✅ MAIN LOGS API (NO FILTERS)
