@@ -68,13 +68,32 @@ def clean_image_path(path):
 # ==============================
 # BUILD IMAGE URL (AZURE READY)
 # ==============================
-def build_image_url(request, path, img_type):
-    clean_path = clean_image_path(path)
+# def build_image_url(request, path, img_type):
+#     clean_path = clean_image_path(path)
 
-    if not clean_path:
+#     if not clean_path:
+#         return None
+
+#     return f"{settings.MEDIA_URL}{clean_path}"
+
+def build_image_url(request, path, img_type):
+    if not path:
         return None
 
-    return f"{settings.MEDIA_URL}{clean_path}"
+    # normalize Windows path (fix \ issue)
+    path = path.replace("\\", "/")
+
+    # get filename
+    filename = os.path.basename(path)
+
+    # ✅ Azure base URL
+    base_url = "https://provisions.blob.core.windows.net/media"
+
+    # ✅ entry/known & exit/known
+    if img_type == "IN":
+        return f"{base_url}/entry/known/{filename}"
+    else:
+        return f"{base_url}/exit/known/{filename}"
 
 
 # ==============================
