@@ -599,18 +599,34 @@ from django.conf import settings
 from django.conf import settings
 import os
 
+# def build_url(request, path, type_):
+#     if not path:
+#         return None
+
+#     # 🔥 normalize path (important for Windows)
+#     path = path.replace("\\", "/")
+
+#     # get only filename
+#     filename = os.path.basename(path)
+
+#     # build clean relative path
+#     return f"{settings.MEDIA_URL}{'entry' if type_=='IN' else 'exit'}/{filename}"
+
 def build_url(request, path, type_):
     if not path:
         return None
 
-    # 🔥 normalize path (important for Windows)
+    # normalize Windows path
     path = path.replace("\\", "/")
 
-    # get only filename
+    # get filename only
     filename = os.path.basename(path)
 
-    # build clean relative path
-    return f"{settings.MEDIA_URL}{'entry' if type_=='IN' else 'exit'}/{filename}"
+    # decide folder (entry / exit)
+    folder = "entry" if type_ == "IN" else "exit"
+
+    # 🔥 NEW: add /known/
+    return f"https://provisions.blob.core.windows.net/media/{folder}/known/{filename}"
 
 # ✅ MAIN LOGS API (NO FILTERS)
 @api_view(['GET'])
