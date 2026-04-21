@@ -650,7 +650,7 @@ def logs(request):
             LEFT JOIN person_shift ps 
                 ON ag.per_id = ps.per_id
 
-            WHERE ag.person_name NOT IN ('Unknown', 'Naveen' , 'Dhiwakaran')
+            WHERE ag.person_name NOT IN ('Unknown')
 
             ORDER BY ag.attendance_date, ag.first_check_in DESC
         """
